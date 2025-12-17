@@ -1,0 +1,30 @@
+## all system file 
+
+
+.DS_Store
+Thumbs.db
+## node modules
+node_modules/
+## log files
+logs
+*.log
+.terraform.tfstate
+.terraform.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+## environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+## build output
+dist/
+build/
+.out/
+
+## IDE files
+.vscode/
+.idea/
