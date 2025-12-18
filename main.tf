@@ -1,4 +1,6 @@
-provider "aws" { region = "us-east-1" }
+provider "aws" { 
+    region = "us-east-1" 
+    }
 
 #. Fetch the Latest ECS-Optimized AMI (This is the "Brain" for your EC2)
 data "aws_ami" "ecs_optimized" {
@@ -76,12 +78,15 @@ resource "aws_autoscaling_group" "ecs_asg" {
     }
 }
 
+
 #. Load Balancer (ALB)
 resource "aws_lb" "main" {
   name = "app-lb" 
   subnets = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
 }
 
+
+#config for target group
 resource "aws_lb_target_group" "app_tg" {
   name = "app-tg" 
   port = 8080 
@@ -94,6 +99,8 @@ resource "aws_lb_target_group" "app_tg" {
   }
 }
 
+
+# listener config
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn 
   port = "80"
@@ -104,7 +111,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-#. The ECS Service (EC2 Launch Type)
+# The ECS Service
 resource "aws_ecs_service" "app" {
   name            = "event-monitor-service"
   cluster         = aws_ecs_cluster.main.id
