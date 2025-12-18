@@ -22,8 +22,14 @@ resource "aws_subnet" "pub_1" {
 }
 
 
+# AWS subnet config
+resource "aws_subnet" "pub_2" { 
+    vpc_id = aws_vpc.main.id 
+    cidr_block = "10.0.2.0/24" 
+    availability_zone = "us-east-1b" 
+}
 
-resource "aws_subnet" "pub_2" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.2.0/24"; availability_zone = "us-east-1b" }
+
 #. IAM Role (Allows your EC2 to "talk" to the ECS Cluster)
 resource "aws_iam_role" "ecs_agent" {
   name = "ecs-agent-role"
@@ -53,30 +59,39 @@ resource "aws_launch_template" "ecs_lt" {
   name_prefix   = "ecs-template-"
   image_id      = data.aws_ami.ecs_optimized.id
   instance_type = "t3.micro" # <--- Free Tier eligible
-  iam_instance_profile { name = aws_iam_instance_profile.ecs_agent.name 
-  }
+  iam_instance_profile { 
+    name = aws_iam_instance_profile.ecs_agent.name 
+    }
+}    
   
   
-  # This script tells the server which cluster to join upon startup
-  user_data = base64encode("#!/bin/bash\necho ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config")
-}
-
 resource "aws_autoscaling_group" "ecs_asg" {
   vpc_zone_identifier = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
-  desired_capacity    = 2 # One server in each AZ for HA
+  desired_capacity    = 1 # One server in each AZ for HA
   max_size            = 2
   min_size            = 1
-  launch_template { id = aws_launch_template.ecs_lt.id; version = "$Latest" }
+  launch_template { 
+    id = aws_launch_template.ecs_lt.id 
+    version = "$Latest" 
+    }
 }
 
 #. Load Balancer (ALB)
 resource "aws_lb" "main" {
-  name = "app-lb"; subnets = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
+  name = "app-lb" 
+  subnets = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
 }
 
 resource "aws_lb_target_group" "app_tg" {
-  name = "app-tg"; port = 8080; protocol = "HTTP"; vpc_id = aws_vpc.main.id; target_type = "instance"
-  health_check { path = "/health"; matcher = "200" }
+  name = "app-tg" 
+  port = 8080 
+  protocol = "HTTP" 
+  vpc_id = aws_vpc.main.id 
+  target_type = "instance"
+  health_check { 
+    path = "/health" 
+    matcher = "200" 
+  }
 }
 
 resource "aws_lb_listener" "http" {
