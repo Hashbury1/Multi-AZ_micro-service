@@ -1,58 +1,82 @@
-terraform {
-  required_providers {
-    aws = {
-      source = "hashicorp/aws"
-      version = "6.26.0"
-    }
+provider "aws" { region = "us-east-1" }
+
+#. Fetch the Latest ECS-Optimized AMI (This is the "Brain" for your EC2)
+data "aws_ami" "ecs_optimized" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-ecs-hvm-*-x86_64-ebs"]
   }
 }
 
-provider "aws" {
-  # Configuration options
-}
-
-
-
-
-
-
-### Define the Network in 2 AZs
+#. Networking (VPC & 2 Public Subnets for HA)
 resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }
+resource "aws_subnet" "pub_1" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.1.0/24"; availability_zone = "us-east-1a" }
+resource "aws_subnet" "pub_2" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.2.0/24"; availability_zone = "us-east-1b" }
 
-resource "aws_subnet" "az_1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
+#. IAM Role (Allows your EC2 to "talk" to the ECS Cluster)
+resource "aws_iam_role" "ecs_agent" {
+  name = "ecs-agent-role"
+  assume_role_policy = jsonencode({
+    Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }]
+  })
 }
 
-#### availability_zone_2 
-resource "aws_subnet" "az_2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
+resource "aws_iam_role_policy_attachment" "ecs_agent" {
+  role       = aws_iam_role.ecs_agent.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+resource "aws_iam_instance_profile" "ecs_agent" { name = "ecs-agent-profile"; role = aws_iam_role.ecs_agent.name }
+
+#. The ECS Cluster
+resource "aws_ecs_cluster" "main" { name = "free-tier-cluster" }
+
+#. Launch Template & Auto Scaling (The "Free" Servers)
+resource "aws_launch_template" "ecs_lt" {
+  name_prefix   = "ecs-template-"
+  image_id      = data.aws_ami.ecs_optimized.id
+  instance_type = "t3.micro" # <--- Free Tier eligible
+  iam_instance_profile { name = aws_iam_instance_profile.ecs_agent.name }
+  
+  # This script tells the server which cluster to join upon startup
+  user_data = base64encode("#!/bin/bash\necho ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config")
 }
 
-#### Create the Load Balancer (Layer 7)
-resource "aws_lb" "web_lb" {
-  name               = "web-service-lb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets            = [aws_subnet.az_1.id, aws_subnet.az_2.id]
+resource "aws_autoscaling_group" "ecs_asg" {
+  vpc_zone_identifier = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
+  desired_capacity    = 2 # One server in each AZ for HA
+  max_size            = 2
+  min_size            = 1
+  launch_template { id = aws_launch_template.ecs_lt.id; version = "$Latest" }
 }
 
-#### Create the Target Group with the Health Check
-resource "aws_lb_target_group" "web_tg" {
-  name     = "web-service-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+#. Load Balancer (ALB)
+resource "aws_lb" "main" {
+  name = "app-lb"; subnets = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
+}
 
-  health_check {
-    path                = "/health"  # The crucial part!
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    matcher             = "200"      # Must return HTTP 200
+resource "aws_lb_target_group" "app_tg" {
+  name = "app-tg"; port = 8080; protocol = "HTTP"; vpc_id = aws_vpc.main.id; target_type = "instance"
+  health_check { path = "/health"; matcher = "200" }
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn; port = "80"; protocol = "HTTP"
+  default_action { type = "forward"; target_group_arn = aws_lb_target_group.app_tg.arn }
+}
+
+#. The ECS Service (EC2 Launch Type)
+resource "aws_ecs_service" "app" {
+  name            = "event-monitor-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.app.arn
+  launch_type     = "EC2"
+  desired_count   = 2
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app_tg.arn
+    container_name   = "flask-app"
+    container_port   = 8080
   }
 }
