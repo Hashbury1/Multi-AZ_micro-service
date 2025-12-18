@@ -28,3 +28,8 @@ build/
 ## IDE files
 .vscode/
 .idea/
+
+
+# var file 
+terraform.tfvars
+variables.tf
