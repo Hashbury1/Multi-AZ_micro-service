@@ -11,10 +11,19 @@ data "aws_ami" "ecs_optimized" {
 }
 
 #. Networking (VPC & 2 Public Subnets for HA)
-resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }
-resource "aws_subnet" "pub_1" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.1.0/24"; availability_zone = "us-east-1a" }
-resource "aws_subnet" "pub_2" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.2.0/24"; availability_zone = "us-east-1b" }
+resource "aws_vpc" "main" { 
+    cidr_block = "10.0.0.0/16" 
+}
 
+resource "aws_subnet" "pub_1" { 
+    vpc_id = aws_vpc.main.id
+    cidr_block = "10.0.1.0/24" 
+    availability_zone = "us-east-1a" 
+}
+
+
+
+resource "aws_subnet" "pub_2" { vpc_id = aws_vpc.main.id; cidr_block = "10.0.2.0/24"; availability_zone = "us-east-1b" }
 #. IAM Role (Allows your EC2 to "talk" to the ECS Cluster)
 resource "aws_iam_role" "ecs_agent" {
   name = "ecs-agent-role"
@@ -27,17 +36,26 @@ resource "aws_iam_role_policy_attachment" "ecs_agent" {
   role       = aws_iam_role.ecs_agent.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
 }
-resource "aws_iam_instance_profile" "ecs_agent" { name = "ecs-agent-profile"; role = aws_iam_role.ecs_agent.name }
+
+resource "aws_iam_instance_profile" "ecs_agent" { 
+    name = "ecs-agent-profile" 
+    role = aws_iam_role.ecs_agent.name 
+}
+
 
 #. The ECS Cluster
-resource "aws_ecs_cluster" "main" { name = "free-tier-cluster" }
+resource "aws_ecs_cluster" "main" { 
+    name = "free-tier-cluster" 
+}
 
 #. Launch Template & Auto Scaling (The "Free" Servers)
 resource "aws_launch_template" "ecs_lt" {
   name_prefix   = "ecs-template-"
   image_id      = data.aws_ami.ecs_optimized.id
   instance_type = "t3.micro" # <--- Free Tier eligible
-  iam_instance_profile { name = aws_iam_instance_profile.ecs_agent.name }
+  iam_instance_profile { name = aws_iam_instance_profile.ecs_agent.name 
+  }
+  
   
   # This script tells the server which cluster to join upon startup
   user_data = base64encode("#!/bin/bash\necho ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config")
@@ -62,8 +80,13 @@ resource "aws_lb_target_group" "app_tg" {
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn; port = "80"; protocol = "HTTP"
-  default_action { type = "forward"; target_group_arn = aws_lb_target_group.app_tg.arn }
+  load_balancer_arn = aws_lb.main.arn 
+  port = "80"
+  protocol = "HTTP"
+  default_action { 
+    type = "forward" 
+    target_group_arn = aws_lb_target_group.app_tg.arn 
+  }
 }
 
 #. The ECS Service (EC2 Launch Type)
