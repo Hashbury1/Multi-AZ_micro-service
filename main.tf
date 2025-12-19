@@ -2,76 +2,28 @@ provider "aws" {
   region = "us-east-1"
 }
 
-resource "aws_launch_template" "ecs_lt" {
-  name_prefix   = "ecs-template-"
-  image_id      = data.aws_ami.ecs_optimized.id
-  instance_type = "t3.micro" # Free Tier eligible
-
-  # 1. LINK TO ECS: This script runs on boot
-  # It tells the agent: "You belong to the cluster named 'free-tier-cluster'"
-  user_data = base64encode(<<-EOF
-    #!/bin/bash
-    echo ECS_CLUSTER=free-tier-cluster >> /etc/ecs/ecs.config
-  EOF
-  )
-
-  # 2. PERMISSIONS: Required for the instance to join ECS
-  iam_instance_profile {
-    name = aws_iam_instance_profile.ecs_node.name
-  }
-
-  # 3. NETWORKING: Attach the security group we built earlier
-  network_interfaces {
-    associate_public_ip_address = true
-    security_groups             = [aws_security_group.ecs_sg.id]
-  }
-
-  # 4. MODERN SECURITY: Required for Amazon Linux 2023
-  metadata_options {
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
-    http_endpoint               = "enabled"
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name = "ecs-container-instance"
-    }
-  }
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-
-
-
 # 1. VPC & Subnets
-resource "aws_vpc" "main" { 
-  cidr_block = "10.0.0.0/16" 
-  }
-
-resource "aws_subnet" "pub_1" { 
-  vpc_id = aws_vpc.main.id 
-  cidr_block = "10.0.1.0/24" 
-  availability_zone = "us-east-1a" 
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
 }
 
-
-resource "aws_subnet" "pub_2" { 
-  vpc_id = aws_vpc.main.id 
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "us-east-1b" 
+resource "aws_subnet" "pub_1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
 }
 
-#Internet Gateway
+resource "aws_subnet" "pub_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "us-east-1b"
+}
+
+# 2. Internet Gateway & Routing
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 }
 
-# Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
   route {
@@ -80,8 +32,6 @@ resource "aws_route_table" "public" {
   }
 }
 
-
-#Route Table association
 resource "aws_route_table_association" "a" {
   subnet_id      = aws_subnet.pub_1.id
   route_table_id = aws_route_table.public.id
@@ -92,11 +42,36 @@ resource "aws_route_table_association" "b" {
   route_table_id = aws_route_table.public.id
 }
 
-#. IAM Role (Allows your EC2 to "talk" to the ECS Cluster)
+# 3. Security Groups
+resource "aws_security_group" "ecs_sg" {
+  name        = "ecs-sg"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # In a production environment, restrict this to your ALB SG
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# 4. IAM Roles for ECS Nodes (EC2 Instances)
 resource "aws_iam_role" "ecs_agent" {
   name = "ecs-agent-role"
   assume_role_policy = jsonencode({
-    Statement = [{ Action = "sts:AssumeRole", Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" } }]
+    Version = "2012-10-17"
+    Statement = [{ 
+      Action = "sts:AssumeRole", 
+      Effect = "Allow", 
+      Principal = { Service = "ec2.amazonaws.com" } 
+    }]
   })
 }
 
@@ -110,43 +85,83 @@ resource "aws_iam_instance_profile" "ecs_agent" {
   role = aws_iam_role.ecs_agent.name
 }
 
-
-#. The ECS Cluster
+# 5. ECS Cluster & AMI Look-up
 resource "aws_ecs_cluster" "main" {
   name = "free-tier-cluster"
 }
 
-#. Launch Template & Auto Scaling (The "Free" Servers)
-resource "aws_launch_template" "ecs_lt" {
-  name_prefix   = "ecs-template-"
-  image_id      = data.aws_ami.ecs_optimized.id
-  instance_type = "t3.micro" # <--- Free Tier eligible
-  iam_instance_profile {
-    name = aws_iam_instance_profile.ecs_agent.name
+data "aws_ami" "ecs_optimized" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["al2023-ami-ecs-hvm-*-x86_64"]
   }
 }
 
+# 6. Launch Template
+resource "aws_launch_template" "ecs_lt" {
+  name_prefix   = "ecs-template-"
+  image_id      = data.aws_ami.ecs_optimized.id
+  instance_type = "t3.micro"
 
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    echo ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config
+  EOF
+  )
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ecs_agent.name
+  }
+
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.ecs_sg.id]
+  }
+
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+    http_endpoint               = "enabled"
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = { Name = "ecs-container-instance" }
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# 7. Auto Scaling Group
 resource "aws_autoscaling_group" "ecs_asg" {
   vpc_zone_identifier = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
-  desired_capacity    = 1 # One server in each AZ for HA
+  desired_capacity    = 2
   max_size            = 2
   min_size            = 1
   launch_template {
     id      = aws_launch_template.ecs_lt.id
     version = "$Latest"
   }
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = true
+    propagate_at_launch = true
+  }
 }
 
-
-#. Load Balancer (ALB)
+# 8. Load Balancer & Target Group
 resource "aws_lb" "main" {
-  name    = "app-lb"
-  subnets = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
+  name               = "app-lb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.pub_1.id, aws_subnet.pub_2.id]
+  security_groups    = [aws_security_group.ecs_sg.id] # Re-using SG for simplicity; usually ALB has its own
 }
 
-
-#config for target group
 resource "aws_lb_target_group" "app_tg" {
   name        = "app-tg"
   port        = 8080
@@ -159,8 +174,6 @@ resource "aws_lb_target_group" "app_tg" {
   }
 }
 
-
-# listener config
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -171,7 +184,21 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# The ECS Service
+# 9. ECS Task & Service
+resource "aws_ecs_task_definition" "app" {
+  family = "flask-event-monitor-task"
+  container_definitions = jsonencode([{
+    name              = "flask-app"
+    image             = "${var.aws_account_id}.dkr.ecr.us-east-1.amazonaws.com/flask-event-monitor:latest"
+    memory            = 512
+    memoryReservation = 256
+    portMappings = [{
+      containerPort = 8080
+      hostPort      = 8080
+    }]
+  }])
+}
+
 resource "aws_ecs_service" "app" {
   name            = "event-monitor-service"
   cluster         = aws_ecs_cluster.main.id
@@ -184,39 +211,4 @@ resource "aws_ecs_service" "app" {
     container_name   = "flask-app"
     container_port   = 8080
   }
-}
-
-resource "aws_ecs_task_definition" "app" {
-  family = "flask-event-monitor-task"
-  # ... other task settings ...
-
-  container_definitions = jsonencode([{
-    name  = "flask-app"
-    image = "${var.aws_account_id}.dkr.ecr.us-east-1.amazonaws.com/flask-event-monitor:latest"
-    
-    # ADD THESE TWO LINES
-    memory            = 512  # Hard limit (container killed if exceeded)
-    memoryReservation = 256  # Soft limit (guaranteed amount)
-
-    portMappings = [{
-      containerPort = 8080
-      hostPort      = 8080
-    }]
-  }])
-}
-
-
-# ALB config
-output "alb_dns_name" {
-  description = "The URL of your Load Balancer"
-  value       = aws_lb.main.dns_name
-}
-
-output "ecs_cluster_name" {
-  value = aws_ecs_cluster.main.name
-}
-
-output "latest_ecs_ami_id" {
-  description = "The AMI ID Terraform found for you"
-  value       = data.aws_ami.ecs_optimized.id
 }
