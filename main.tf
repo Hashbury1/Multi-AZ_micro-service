@@ -2,35 +2,95 @@ provider "aws" {
   region = "us-east-1"
 }
 
-#. Fetch the Latest ECS-Optimized AMI (This is the "Brain" for your EC2)
-data "aws_ami" "ecs_optimized" {
-  most_recent = true
-  owners      = ["amazon"]
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-ecs-hvm-*-x86_64-ebs"]
+resource "aws_launch_template" "ecs_lt" {
+  name_prefix   = "ecs-template-"
+  image_id      = data.aws_ami.ecs_optimized.id
+  instance_type = "t3.micro" # Free Tier eligible
+
+  # 1. LINK TO ECS: This script runs on boot
+  # It tells the agent: "You belong to the cluster named 'free-tier-cluster'"
+  user_data = base64encode(<<-EOF
+    #!/bin/bash
+    echo ECS_CLUSTER=free-tier-cluster >> /etc/ecs/ecs.config
+  EOF
+  )
+
+  # 2. PERMISSIONS: Required for the instance to join ECS
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ecs_node.name
+  }
+
+  # 3. NETWORKING: Attach the security group we built earlier
+  network_interfaces {
+    associate_public_ip_address = true
+    security_groups             = [aws_security_group.ecs_sg.id]
+  }
+
+  # 4. MODERN SECURITY: Required for Amazon Linux 2023
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+    http_endpoint               = "enabled"
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "ecs-container-instance"
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
-#. Networking (VPC & 2 Public Subnets for HA)
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+
+
+
+# 1. VPC & Subnets
+resource "aws_vpc" "main" { 
+  cidr_block = "10.0.0.0/16" 
+  }
+
+resource "aws_subnet" "pub_1" { 
+  vpc_id = aws_vpc.main.id 
+  cidr_block = "10.0.1.0/24" 
+  availability_zone = "us-east-1a" 
 }
 
-resource "aws_subnet" "pub_1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
+
+resource "aws_subnet" "pub_2" { 
+  vpc_id = aws_vpc.main.id 
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "us-east-1b" 
+}
+
+#Internet Gateway
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+}
+
+# Route Table
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
 }
 
 
-# AWS subnet config
-resource "aws_subnet" "pub_2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
+#Route Table association
+resource "aws_route_table_association" "a" {
+  subnet_id      = aws_subnet.pub_1.id
+  route_table_id = aws_route_table.public.id
 }
 
+resource "aws_route_table_association" "b" {
+  subnet_id      = aws_subnet.pub_2.id
+  route_table_id = aws_route_table.public.id
+}
 
 #. IAM Role (Allows your EC2 to "talk" to the ECS Cluster)
 resource "aws_iam_role" "ecs_agent" {
@@ -143,4 +203,20 @@ resource "aws_ecs_task_definition" "app" {
       hostPort      = 8080
     }]
   }])
+}
+
+
+# ALB config
+output "alb_dns_name" {
+  description = "The URL of your Load Balancer"
+  value       = aws_lb.main.dns_name
+}
+
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
+
+output "latest_ecs_ami_id" {
+  description = "The AMI ID Terraform found for you"
+  value       = data.aws_ami.ecs_optimized.id
 }
