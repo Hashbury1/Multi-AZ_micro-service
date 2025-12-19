@@ -127,11 +127,20 @@ resource "aws_ecs_service" "app" {
 }
 
 resource "aws_ecs_task_definition" "app" {
-  family = "${var.app_name}-task"
+  family = "flask-event-monitor-task"
+  # ... other task settings ...
+
   container_definitions = jsonencode([{
-    name = "flask-app"
-    # Use the variable to build the image URL
-    image = "${var.aws_account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/${var.app_name}:latest"
-    # ... rest of your task config ...
+    name  = "flask-app"
+    image = "${var.aws_account_id}.dkr.ecr.us-east-1.amazonaws.com/flask-event-monitor:latest"
+    
+    # ADD THESE TWO LINES
+    memory            = 512  # Hard limit (container killed if exceeded)
+    memoryReservation = 256  # Soft limit (guaranteed amount)
+
+    portMappings = [{
+      containerPort = 8080
+      hostPort      = 8080
+    }]
   }])
 }
