@@ -42,16 +42,24 @@ resource "aws_route_table_association" "b" {
   route_table_id = aws_route_table.public.id
 }
 
-# 3. Security Groups
 resource "aws_security_group" "ecs_sg" {
-  name        = "ecs-sg"
-  vpc_id      = aws_vpc.main.id
+  name   = "ecs-sg"
+  vpc_id = aws_vpc.main.id
 
+  # THIS IS THE MISSING PIECE: Allow public web traffic
   ingress {
-    from_port   = 8080
-    to_port     = 8080
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # In a production environment, restrict this to your ALB SG
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
+
+  # Allow the Load Balancer to talk to your Flask App (Dynamic Ports)
+  ingress {
+    from_port   = 32768
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -108,6 +116,7 @@ resource "aws_launch_template" "ecs_lt" {
   user_data = base64encode(<<-EOF
     #!/bin/bash
     echo ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config
+    echo ECS_ENABLE_CONTAINER_METADATA=true >> /etc/ecs/ecs.config
   EOF
   )
 
@@ -162,15 +171,23 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.ecs_sg.id] # Re-using SG for simplicity; usually ALB has its own
 }
 
+
+# Target group config
 resource "aws_lb_target_group" "app_tg" {
   name        = "app-tg"
   port        = 8080
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "instance"
+
   health_check {
-    path    = "/health"
-    matcher = "200"
+    path                = "/health"
+    matcher             = "200"
+    port                = "traffic-port" # <--- IMPORTANT: Change this from 8080 to "traffic-port"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
   }
 }
 
@@ -184,17 +201,16 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# 9. ECS Task & Service
 resource "aws_ecs_task_definition" "app" {
   family = "flask-event-monitor-task"
   container_definitions = jsonencode([{
-    name              = "flask-app"
-    image             = "${var.aws_account_id}.dkr.ecr.us-east-1.amazonaws.com/flask-event-monitor:latest"
-    memory            = 512
-    memoryReservation = 256
+    name      = "flask-app"
+    image     = "${var.aws_account_id}.dkr.ecr.us-east-1.amazonaws.com/flask-event-monitor:latest"
+    memory    = 512
+    # ... other settings ...
     portMappings = [{
       containerPort = 8080
-      hostPort      = 8080
+      hostPort      = 0  # <--- CHANGE THIS TO 0
     }]
   }])
 }
@@ -205,10 +221,11 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   launch_type     = "EC2"
   desired_count   = 2
-
+  health_check_grace_period_seconds = 60
+  
   load_balancer {
     target_group_arn = aws_lb_target_group.app_tg.arn
-    container_name   = "flask-app"
-    container_port   = 8080
+    container_name   = "flask-app" # Must match name in Task Definition
+    container_port   = 8080        # The port inside the container
   }
 }
