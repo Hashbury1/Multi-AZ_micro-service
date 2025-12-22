@@ -228,4 +228,10 @@ resource "aws_ecs_service" "app" {
     container_name   = "flask-app" # Must match name in Task Definition
     container_port   = 8080        # The port inside the container
   }
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required" # AL2023 requires IMDSv2
+    http_put_response_hop_limit = 2          # <--- THIS IS THE FIX
+  }
 }
