@@ -87,6 +87,3 @@ Once Terraform completes, it will output the `ALB_DNS_Link`. Copy this into your
 
 **Maintained by Archibong Hashbury** *Looking to solve complex infrastructure challenges.*
 
----
-
-Would you like me to add a **"Prerequisites"** section (like AWS CLI or Terraform versions) or a **"Project Structure"** tree to this README?
