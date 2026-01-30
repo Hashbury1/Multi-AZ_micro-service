@@ -1,116 +1,92 @@
-Multi-AZ Microservice ArchitectureA highly available, containerized microservice deployment engineered with Terraform, Docker, and AWS ECS. 
 
-This project implements a Multi-AZ strategy to ensure fault tolerance and automated scalability.
+# Multi-AZ Microservice Architecture
 
-Architecture Overview
-The infrastructure is designed for 99.9% availability, utilizing two Availability Zones (AZs) within a custom VPC.
+A highly available, containerized microservice deployment engineered with **Terraform**, **Docker**, and **AWS ECS**. This project implements a Multi-AZ strategy to ensure fault tolerance and automated scalability.
 
-Networking: Custom VPC with Public/Private subnets across 2 AZs.Compute: AWS ECS (Elastic Container Service) running on EC2 instances.
+## Architecture Overview
 
-Scaling: Auto Scaling Group (ASG) utilizing AWS Launch Templates for dynamic instance provisioning.
+The infrastructure is designed for **99.9% availability**, utilizing two Availability Zones (AZs) within a custom VPC.
 
-Traffic Management: Application Load Balancer (ALB) acting as the ingress point, routing traffic to Nginx-backed service containers.
+* **Networking:** Custom VPC with Public/Private subnets across 2 AZs.
+* **Compute:** AWS ECS (Elastic Container Service) running on EC2 instances.
+* **Scaling:** Auto Scaling Group (ASG) utilizing AWS Launch Templates for dynamic instance provisioning.
+* **Traffic Management:** Application Load Balancer (ALB) acting as the ingress point, routing traffic to Nginx-backed service containers.
+* **Security:** Principle of Least Privilege (PoLP) enforced via AWS IAM Roles and granular Security Groups.
+* **Application:** A Python-based microservice orchestrated with Docker and served via Nginx.
 
-Security: Principle of Least Privilege (PoLP) enforced via AWS IAM Roles and granular Security Groups.
+---
 
-Application: A Python-based microservice orchestrated with Docker and served via Nginx.
+## Tech Stack
 
+| Category | Technology |
+| --- | --- |
+| **Cloud Provider** | AWS (VPC, IAM, ASG, ALB) |
+| **Infrastructure** | Terraform (IaC) |
+| **Orchestration** | AWS ECS |
+| **Containerization** | Docker |
+| **Web Server** | Nginx |
+| **Language** | Python |
 
-Tech Stack
-Terraform (IaC)
-Docker Orchestration
-AWS ECS
-Nginx
-Python
-AWS (VPC, IAM, ASG, ALB)
+---
 
+## Key Features
 
+### 1. High Availability (Multi-AZ)
 
+The infrastructure is spread across two distinct Availability Zones. If one AWS data center experiences an outage, the Application Load Balancer automatically reroutes traffic to the healthy nodes in the second AZ.
 
-Key Features
+### 2. Infrastructure as Code (Terraform)
 
-1. High Availability (Multi-AZ)The infrastructure is spread across two distinct Availability Zones. If one AWS data center experiences an outage, the Application Load Balancer automatically reroutes traffic to the healthy nodes in the second AZ.
+The entire environment is version-controlled and reproducible.
 
-2. Infrastructure as Code (Terraform) The entire environment is version-controlled.
-Modular Design: Clean separation of networking, security, and compute.
-State Management: S3
+* **Modular Design:** Clean separation of networking, security, and compute modules.
+* **State Management:** Remote state storage via S3.
 
-3. Automated Scalability Using AWS Launch Templates and Auto Scaling Policies, the cluster scales based on CPU/Memory utilization, ensuring cost-efficiency during low traffic and stability during spikes.
+### 3. Automated Scalability
 
-4. Container Orchestration
-Docker: Images are optimized for size and security.ECS: Manages the lifecycle of the Python containers, performing health checks and rolling updates.
+Using AWS Launch Templates and Auto Scaling Policies, the cluster scales based on CPU/Memory utilization, ensuring cost-efficiency during low traffic and stability during spikes.
 
+### 4. Container Orchestration
 
-Multi-AZ Microservice ArchitectureA highly available, containerized microservice deployment engineered with Terraform, Docker, and AWS ECS. 
+* **Docker:** Images are optimized for size and security.
+* **ECS:** Manages the lifecycle of the Python containers, performing health checks and rolling updates.
 
-This project implements a Multi-AZ strategy to ensure fault tolerance and automated scalability.
+---
 
-Architecture Overview
-The infrastructure is designed for 99.9% availability, utilizing two Availability Zones (AZs) within a custom VPC.
+## Deployment Steps
 
-Networking: Custom VPC with Public/Private subnets across 2 AZs.Compute: AWS ECS (Elastic Container Service) running on EC2 instances.
+### 1. Containerize the App
 
-Scaling: Auto Scaling Group (ASG) utilizing AWS Launch Templates for dynamic instance provisioning.
+```bash
+docker build -t microservice-app ./app
 
-Traffic Management: Application Load Balancer (ALB) acting as the ingress point, routing traffic to Nginx-backed service containers.
+```
 
-Security: Principle of Least Privilege (PoLP) enforced via AWS IAM Roles and granular Security Groups.
+### 2. Initialize Infrastructure
 
-Application: A Python-based microservice orchestrated with Docker and served via Nginx.
-
-
-🛠️ Tech Stack
-Terraform (IaC)
-Docker Orchestration
-AWS ECS
-Nginx
-Python
-AWS (VPC, IAM, ASG, ALB)
-
-
-
-
-Key Features
-
-1. High Availability (Multi-AZ)The infrastructure is spread across two distinct Availability Zones. If one AWS data center experiences an outage, the Application Load Balancer automatically reroutes traffic to the healthy nodes in the second AZ.
-
-2. Infrastructure as Code (Terraform) The entire environment is version-controlled.
-Modular Design: Clean separation of networking, security, and compute.
-State Management: S3
-
-3. Automated Scalability Using AWS Launch Templates and Auto Scaling Policies, the cluster scales based on CPU/Memory utilization, ensuring cost-efficiency during low traffic and stability during spikes.
-
-4. Container Orchestration
-Docker: Images are optimized for size and security.ECS: Manages the lifecycle of the Python containers, performing health checks and rolling updates.
-
-
-🚀 Deployment Steps
-
-Containerize the App:Bashdocker build -t microservice-app ./app
-
-Initialize Infrastructure:Bash
-
+```bash
 cd terraform
-
 terraform init
-
 terraform plan
-
 terraform apply -auto-approve
 
-Access the Service:Once Terraform completes, it will output the ALB_DNS_Link.
+```
 
-Security IAM Roles: Task Execution Roles allow ECS to pull images from ECR without hardcoded credentials.
+### 3. Access the Service
 
-Private Isolation: The Python application sits in a private subnet, accessible only via the Load Balancer.
+Once Terraform completes, it will output the `ALB_DNS_Link`. Copy this into your browser to view the running application.
 
-Maintained by Archibong Hashbury Looking to solve complex infrastructure challenges.
+---
 
+##  Security & Isolation
 
-Access the Service:Once Terraform completes, it will output the ALB_DNS_Link.
+* **IAM Roles:** Task Execution Roles allow ECS to pull images from ECR without hardcoded credentials.
+* **Private Isolation:** The Python application resides in a private subnet, shielded from the public internet and accessible only via the Load Balancer.
 
-Security IAM Roles: Task Execution Roles allow ECS to pull images from ECR without hardcoded credentials.
+---
 
-Private Isolation: The Python application sits in a private subnet, accessible only via the Load Balancer.
+**Maintained by Archibong Hashbury** *Looking to solve complex infrastructure challenges.*
 
-Maintained by Archibong Hashbury Looking to solve complex infrastructure challenges.
+---
+
+Would you like me to add a **"Prerequisites"** section (like AWS CLI or Terraform versions) or a **"Project Structure"** tree to this README?
